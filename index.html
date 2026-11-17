@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#0f172a">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <title>SkinScope Consult</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">SkinScope <span>Consult</span></div>
+    <div class="top-patient" id="topPatient"></div>
+  </header>
+
+  <!-- ============ HOME ============ -->
+  <section id="home" class="screen active">
+    <div class="home-card">
+      <h1>New consultation</h1>
+      <label class="field">
+        <span>Patient name / ID</span>
+        <input id="patientName" type="text" autocomplete="off" placeholder="e.g. Aisyah R. / #1042">
+      </label>
+      <label class="field">
+        <span>Clinic name (shown on the collage)</span>
+        <input id="clinicName" type="text" autocomplete="off" placeholder="Your clinic">
+      </label>
+      <div class="field">
+        <span>Camera</span>
+        <div class="seg" id="cameraSeg">
+          <button data-facing="environment" class="on">Back camera (staff holds iPad)</button>
+          <button data-facing="user">Front camera (selfie)</button>
+        </div>
+      </div>
+
+      <div class="home-actions">
+        <button id="startCamera" class="btn primary big" disabled>Start camera</button>
+        <label class="btn big ghost file-btn" id="importLabel">
+          Import 1–3 photos
+          <input id="importFiles" type="file" accept="image/*" multiple hidden>
+        </label>
+      </div>
+      <p class="model-status" id="modelStatus">Loading face AI…</p>
+
+      <details class="tips" open>
+        <summary>For the best results</summary>
+        <ul>
+          <li>Bare skin: no makeup or sunscreen. Hair clipped back, glasses off.</li>
+          <li>Even, soft light from the front (window or ring light). Avoid overhead spotlights and flash.</li>
+          <li>For the oil reading, the patient should not have washed or blotted their face in the last ~1–2 hours.</li>
+          <li>Use the same spot and light every visit so before/after comparisons are fair.</li>
+          <li>Photos stay on this device. Nothing is uploaded.</li>
+        </ul>
+      </details>
+    </div>
+  </section>
+
+  <!-- ============ CAPTURE ============ -->
+  <section id="capture" class="screen">
+    <div class="cam-wrap" id="camWrap">
+      <video id="video" playsinline muted autoplay></video>
+      <canvas id="overlay"></canvas>
+      <div class="flash" id="flash"></div>
+    </div>
+
+    <div class="cam-top">
+      <button class="btn small ghost-dark" id="camCancel">✕ Cancel</button>
+      <div class="steps" id="steps">
+        <button class="step" data-slot="right"><canvas></canvas><span>Right 45°</span></button>
+        <button class="step" data-slot="front"><canvas></canvas><span>Front</span></button>
+        <button class="step" data-slot="left"><canvas></canvas><span>Left 45°</span></button>
+      </div>
+      <button class="btn small ghost-dark" id="camSwitch" title="Switch camera">⟲ Camera</button>
+    </div>
+
+    <div class="cam-bottom">
+      <div class="instruction" id="instruction">Looking for a face…</div>
+      <div class="hint" id="hint"></div>
+      <div class="gauge" id="gauge">
+        <div class="gauge-track">
+          <div class="gauge-zone" id="gaugeZone"></div>
+          <div class="gauge-needle" id="gaugeNeedle"></div>
+        </div>
+        <div class="gauge-labels"><span>turned to their right</span><span id="yawText">0°</span><span>turned to their left</span></div>
+      </div>
+      <div class="checks" id="checks">
+        <span data-k="face">Face</span><span data-k="angle">Angle</span><span data-k="dist">Distance</span>
+        <span data-k="level">Level</span><span data-k="light">Light</span>
+      </div>
+      <div class="cam-actions">
+        <label class="auto"><input type="checkbox" id="autoCap" checked> Auto-capture</label>
+        <button class="shutter" id="shutter" aria-label="Take photo"><span></span></button>
+        <button class="btn primary" id="toResults" disabled>Analyse ›</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ RESULTS ============ -->
+  <section id="results" class="screen">
+    <div class="results-bar">
+      <div class="views" id="viewTabs"></div>
+      <div class="results-actions">
+        <button class="btn small" id="retake">Retake</button>
+        <button class="btn small" id="saveCollage">Save collage</button>
+        <button class="btn small" id="printReport">Print / PDF</button>
+        <button class="btn small primary" id="newPatient">New patient</button>
+      </div>
+    </div>
+
+    <div class="progress" id="progress"><div class="spinner"></div><span id="progressText">Analysing…</span></div>
+
+    <div class="collage-box">
+      <canvas id="collage"></canvas>
+      <p class="tap-hint">Tap a photo to view it larger.</p>
+    </div>
+
+    <div class="report" id="report"></div>
+  </section>
+
+  <!-- zoom -->
+  <div class="zoom" id="zoom" hidden>
+    <div class="zoom-bar">
+      <div class="views" id="zoomTabs"></div>
+      <button class="btn small ghost-dark" id="zoomClose">✕ Close</button>
+    </div>
+    <div class="zoom-scroll"><canvas id="zoomCanvas"></canvas></div>
+  </div>
+
+  <div class="toast" id="toast"></div>
+
+  <script type="module" src="js/app.js"></script>
+</body>
+</html>
