@@ -19,16 +19,21 @@ export const ZONES = {
   5: 'upperLip',
   6: 'chin',
   7: 'other',
+  8: 'eyes',
 };
 export const ZONE_LABEL = {
   forehead: 'Forehead',
   nose: 'Nose',
-  cheekR: "Right cheek",
-  cheekL: "Left cheek",
+  cheekR: 'Right cheek',
+  cheekL: 'Left cheek',
+  eyes: 'Around eyes',
   upperLip: 'Upper lip',
   chin: 'Chin',
   other: 'Temples / jaw',
 };
+// letters used on the images and in tables
+export const ZONE_LETTER = { forehead: 'A', nose: 'B', cheekR: 'C', cheekL: 'D', eyes: 'E', chin: 'F', upperLip: 'G', other: 'H' };
+export const ZONE_ORDER = ['forehead', 'nose', 'cheekR', 'cheekL', 'eyes', 'chin', 'upperLip', 'other'];
 
 function scaleAbout(points, k) {
   const cx = points.reduce((s, p) => s + p.x, 0) / points.length;
@@ -121,6 +126,12 @@ export function buildRegions(pts, w, h) {
   const rightIsLeftInImage = pts[234].x < pts[454].x;
   const xNoseR = pts[129].x, xNoseL = pts[358].x;
 
+  const eyeC = [EYE_R, EYE_L].map((ids) => ({
+    x: ids.reduce((a, i) => a + pts[i].x, 0) / ids.length,
+    y: ids.reduce((a, i) => a + pts[i].y, 0) / ids.length,
+    rx: Math.hypot(pts[ids[0]].x - pts[ids[8]].x, pts[ids[0]].y - pts[ids[8]].y) * 1.15 || eyeW,
+  }));
+  const inEye = (xx, yy) => eyeC.some((e) => ((xx - e.x) / e.rx) ** 2 + ((yy - e.y) / (e.rx * 0.75)) ** 2 < 1);
   const zone = new Uint8Array(w * h);
   for (let yy = 0; yy < h; yy++) {
     const mx = midX(yy);
@@ -130,6 +141,7 @@ export function buildRegions(pts, w, h) {
       let z = 7;
       if (yy < browTop) z = 1;
       else if (nimg[i * 4] > 127) z = 2;
+      else if (inEye(xx, yy)) z = 8;
       else if (yy > lipBottom + eyeW * 0.15) z = 6;
       else if (yy > subnasale && yy < mouthTop + eyeW * 0.1 &&
         Math.abs(xx - mx) < Math.abs(pts[291].x - pts[61].x) * 0.6) z = 5;

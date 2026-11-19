@@ -6,7 +6,7 @@
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="theme-color" content="#0f172a">
+  <meta name="theme-color" content="#0b1220">
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="apple-touch-icon" href="icons/icon-192.png">
   <title>SkinScope Consult</title>
@@ -14,78 +14,110 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="brand">SkinScope <span>Consult</span></div>
-    <div class="top-patient" id="topPatient"></div>
+    <div class="brand">SkinScope<span>Consult</span></div>
+    <nav class="flow" id="flow">
+      <button data-go="customer"><b>1</b>Customer</button>
+      <button data-go="capture"><b>2</b>Capture</button>
+      <button data-go="images"><b>3</b>Images</button>
+      <button data-go="analysis"><b>4</b>Analysis</button>
+      <button data-go="total"><b>5</b>Total</button>
+      <button data-go="history"><b>6</b>History</button>
+      <button data-go="compare"><b>7</b>Compare</button>
+    </nav>
+    <div class="who" id="who"></div>
   </header>
 
-  <!-- ============ HOME ============ -->
-  <section id="home" class="screen active">
-    <div class="home-card">
-      <h1>New consultation</h1>
-      <label class="field">
-        <span>Patient name / ID</span>
-        <input id="patientName" type="text" autocomplete="off" placeholder="e.g. Aisyah R. / #1042">
-      </label>
-      <label class="field">
-        <span>Clinic name (shown on the collage)</span>
-        <input id="clinicName" type="text" autocomplete="off" placeholder="Your clinic">
-      </label>
-      <div class="field">
-        <span>Camera</span>
-        <div class="seg" id="cameraSeg">
-          <button data-facing="environment" class="on">Back camera (staff holds iPad)</button>
-          <button data-facing="user">Front camera (selfie)</button>
+  <!-- ================= 1. CUSTOMER ================= -->
+  <section id="customer" class="screen active">
+    <div class="cust-grid">
+      <aside class="panel cust-list">
+        <div class="panel-head">
+          <h2>Customers</h2>
+          <button class="btn small primary" id="newCust">+ New</button>
         </div>
-      </div>
+        <input id="custSearch" class="search" type="search" placeholder="Search name or phone…">
+        <div id="custList" class="list"></div>
+        <div class="storage" id="storageInfo"></div>
+      </aside>
 
-      <div class="home-actions">
-        <button id="startCamera" class="btn primary big" disabled>Start camera</button>
-        <label class="btn big ghost file-btn" id="importLabel">
-          Import 1–3 photos
-          <input id="importFiles" type="file" accept="image/*" multiple hidden>
-        </label>
-      </div>
-      <p class="model-status" id="modelStatus">Loading face AI…</p>
+      <div class="cust-main">
+        <div class="panel">
+          <div class="panel-head"><h2 id="formTitle">New customer</h2><span class="req-note">* required</span></div>
+          <form id="custForm" class="form" autocomplete="off">
+            <label class="f"><span>Name *</span><input name="name" required placeholder="Full name"></label>
+            <div class="f"><span>Sex *</span>
+              <div class="seg" id="sexSeg"><button type="button" data-v="F">Female</button><button type="button" data-v="M">Male</button></div>
+            </div>
+            <label class="f"><span>Birthday *</span><input name="birthday" type="date" required></label>
+            <label class="f"><span>Adviser / Doctor</span><input name="adviser" placeholder="Counsellor or doctor"></label>
+            <label class="f"><span>Phone</span><input name="phone" type="tel"></label>
+            <label class="f"><span>E-mail</span><input name="email" type="email"></label>
+            <label class="f wide"><span>Notes (skin history, allergies, treatments)</span><textarea name="notes" rows="2"></textarea></label>
+          </form>
+          <div class="form-actions">
+            <button class="btn" id="saveCust">Save</button>
+            <button class="btn" id="clearCust">Clear</button>
+            <button class="btn danger" id="delCust">Delete</button>
+            <span class="grow"></span>
+            <button class="btn primary big" id="startVisit">Start consultation ›</button>
+          </div>
+        </div>
 
-      <details class="tips" open>
-        <summary>For the best results</summary>
-        <ul>
-          <li>Bare skin: no makeup or sunscreen. Hair clipped back, glasses off.</li>
-          <li>Even, soft light from the front (window or ring light). Avoid overhead spotlights and flash.</li>
-          <li>For the oil reading, the patient should not have washed or blotted their face in the last ~1–2 hours.</li>
-          <li>Use the same spot and light every visit so before/after comparisons are fair.</li>
-          <li>Photos stay on this device. Nothing is uploaded.</li>
-        </ul>
-      </details>
+        <div class="panel" id="visitPanel" hidden>
+          <div class="panel-head"><h2>Previous visits</h2></div>
+          <div id="visitList" class="visit-list"></div>
+        </div>
+
+        <details class="panel settings">
+          <summary>Settings &amp; photo tips</summary>
+          <div class="form">
+            <label class="f"><span>Clinic name (printed on reports)</span><input id="clinicName" placeholder="Your clinic"></label>
+            <div class="f"><span>Camera</span>
+              <div class="seg" id="cameraSeg">
+                <button type="button" data-facing="environment">Back camera (staff holds iPad)</button>
+                <button type="button" data-facing="user">Front camera</button>
+              </div>
+            </div>
+          </div>
+          <ul class="tips">
+            <li>Bare skin: no makeup or sunscreen. Hair clipped back, glasses off. Ask the patient to close their eyes or keep a neutral face.</li>
+            <li>Same room, same soft front light and same distance every visit. Use the <b>Ghost</b> overlay to line up with the last visit.</li>
+            <li>For sebum, the patient should not have cleansed or blotted for 1–2 hours.</li>
+            <li>Everything is stored only on this iPad, in this browser. Nothing is uploaded.</li>
+          </ul>
+          <p class="model-status" id="modelStatus">Loading face AI…</p>
+        </details>
+      </div>
     </div>
   </section>
 
-  <!-- ============ CAPTURE ============ -->
+  <!-- ================= 2. CAPTURE ================= -->
   <section id="capture" class="screen">
     <div class="cam-wrap" id="camWrap">
       <video id="video" playsinline muted autoplay></video>
       <canvas id="overlay"></canvas>
       <div class="flash" id="flash"></div>
     </div>
-
     <div class="cam-top">
-      <button class="btn small ghost-dark" id="camCancel">✕ Cancel</button>
+      <button class="btn small ghost-dark" id="camCancel">✕ Close</button>
       <div class="steps" id="steps">
-        <button class="step" data-slot="right"><canvas></canvas><span>Right 45°</span></button>
-        <button class="step" data-slot="front"><canvas></canvas><span>Front</span></button>
-        <button class="step" data-slot="left"><canvas></canvas><span>Left 45°</span></button>
+        <button class="step" data-slot="front"><canvas></canvas><span>1 Front</span></button>
+        <button class="step" data-slot="left"><canvas></canvas><span>2 Left 45°</span></button>
+        <button class="step" data-slot="right"><canvas></canvas><span>3 Right 45°</span></button>
       </div>
-      <button class="btn small ghost-dark" id="camSwitch" title="Switch camera">⟲ Camera</button>
+      <div class="cam-opts">
+        <div class="seg dark" id="guideSeg">
+          <button data-g="none">Off</button><button data-g="4">4</button><button data-g="48">48</button><button data-g="ghost">Ghost</button>
+        </div>
+        <label class="ghost-alpha" id="ghostAlphaWrap">Ghost <input type="range" id="ghostAlpha" min="0" max="100" value="50"> <span id="ghostAlphaVal">50%</span></label>
+        <button class="btn small ghost-dark" id="camSwitch">⟲ Camera</button>
+      </div>
     </div>
-
     <div class="cam-bottom">
       <div class="instruction" id="instruction">Looking for a face…</div>
       <div class="hint" id="hint"></div>
-      <div class="gauge" id="gauge">
-        <div class="gauge-track">
-          <div class="gauge-zone" id="gaugeZone"></div>
-          <div class="gauge-needle" id="gaugeNeedle"></div>
-        </div>
+      <div class="gauge">
+        <div class="gauge-track"><div class="gauge-zone" id="gaugeZone"></div><div class="gauge-needle" id="gaugeNeedle"></div></div>
         <div class="gauge-labels"><span>turned to their right</span><span id="yawText">0°</span><span>turned to their left</span></div>
       </div>
       <div class="checks" id="checks">
@@ -93,44 +125,84 @@
         <span data-k="level">Level</span><span data-k="light">Light</span>
       </div>
       <div class="cam-actions">
-        <label class="auto"><input type="checkbox" id="autoCap" checked> Auto-capture</label>
+        <div class="cam-left">
+          <label class="auto"><input type="checkbox" id="autoCap" checked> Auto</label>
+          <label class="btn small ghost-dark file-btn">Import<input id="importFiles" type="file" accept="image/*" multiple hidden></label>
+        </div>
         <button class="shutter" id="shutter" aria-label="Take photo"><span></span></button>
-        <button class="btn primary" id="toResults" disabled>Analyse ›</button>
+        <button class="btn primary" id="toImages" disabled>Analyse ›</button>
       </div>
     </div>
   </section>
 
-  <!-- ============ RESULTS ============ -->
-  <section id="results" class="screen">
-    <div class="results-bar">
-      <div class="views" id="viewTabs"></div>
-      <div class="results-actions">
-        <button class="btn small" id="retake">Retake</button>
-        <button class="btn small" id="saveCollage">Save collage</button>
-        <button class="btn small" id="printReport">Print / PDF</button>
-        <button class="btn small primary" id="newPatient">New patient</button>
+  <!-- ================= 3. IMAGES ================= -->
+  <section id="images" class="screen">
+    <div class="toolbar">
+      <div class="seg" id="posSeg">
+        <button data-pos="front">Front</button><button data-pos="left">Left 45°</button><button data-pos="right">Right 45°</button><button data-pos="all">All angles</button>
       </div>
+      <span class="grow"></span>
+      <button class="btn small" id="lampAll" title="Hold to show the original photos">💡 Hold: original</button>
+      <button class="btn small" id="retake">Retake</button>
     </div>
-
     <div class="progress" id="progress"><div class="spinner"></div><span id="progressText">Analysing…</span></div>
 
-    <div class="collage-box">
-      <canvas id="collage"></canvas>
-      <p class="tap-hint">Tap a photo to view it larger.</p>
-    </div>
+    <div id="slotsView" class="slots"></div>
 
-    <div class="report" id="report"></div>
+    <div id="allView" hidden>
+      <div class="chips" id="allModes"></div>
+      <div class="collage-box"><canvas id="collage"></canvas></div>
+      <div class="toolbar end"><button class="btn small" id="saveCollage">Save collage</button></div>
+    </div>
   </section>
 
-  <!-- zoom -->
-  <div class="zoom" id="zoom" hidden>
-    <div class="zoom-bar">
-      <div class="views" id="zoomTabs"></div>
-      <button class="btn small ghost-dark" id="zoomClose">✕ Close</button>
+  <!-- ================= 4. ANALYSIS ================= -->
+  <section id="analysis" class="screen">
+    <div class="an-grid">
+      <nav class="an-menu" id="anMenu"></nav>
+      <div class="an-image panel">
+        <div class="toolbar tight">
+          <div class="seg small" id="anPos"><button data-pos="front">Front</button><button data-pos="left">Left</button><button data-pos="right">Right</button></div>
+          <span class="grow"></span>
+          <button class="btn small" id="anZones">Zones A–G</button>
+          <button class="btn small" id="anLamp">💡 Hold</button>
+        </div>
+        <canvas id="anCanvas"></canvas>
+        <p class="tap-hint">Tap the image to zoom and measure.</p>
+      </div>
+      <div class="an-result" id="anResult"></div>
     </div>
-    <div class="zoom-scroll"><canvas id="zoomCanvas"></canvas></div>
-  </div>
+  </section>
 
+  <!-- ================= 5. TOTAL ================= -->
+  <section id="total" class="screen">
+    <div class="toolbar">
+      <h2 class="t-title">Total results</h2>
+      <span class="grow"></span>
+      <span class="saved" id="savedState"></span>
+      <button class="btn small" id="printTotal">Print / PDF</button>
+    </div>
+    <div id="totalBody" class="total"></div>
+  </section>
+
+  <!-- ================= 6. HISTORY ================= -->
+  <section id="history" class="screen">
+    <div class="toolbar"><h2 class="t-title">History</h2><span class="grow"></span><div class="chips" id="histCats"></div></div>
+    <div id="historyBody" class="history"></div>
+  </section>
+
+  <!-- ================= 7. COMPARE ================= -->
+  <section id="compare" class="screen">
+    <div class="toolbar wrap">
+      <label class="sel">Date 1 <select id="cmpA"></select></label>
+      <label class="sel">Date 2 <select id="cmpB"></select></label>
+      <div class="seg small" id="cmpPos"><button data-pos="front">Front</button><button data-pos="left">Left</button><button data-pos="right">Right</button></div>
+      <select id="cmpMode" class="sel-plain"></select>
+    </div>
+    <div id="compareBody" class="compare"></div>
+  </section>
+
+  <div class="viewer" id="viewer" hidden></div>
   <div class="toast" id="toast"></div>
 
   <script type="module" src="js/app.js"></script>

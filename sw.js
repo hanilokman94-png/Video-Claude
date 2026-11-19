@@ -1,5 +1,5 @@
 // Network-first service worker: always tries the latest version, falls back to cache when offline.
-const CACHE = 'skinscope-v1';
+const CACHE = 'skinscope-v2';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {

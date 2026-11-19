@@ -15,17 +15,19 @@ import { buildRegions, ZONES } from './regions.js';
 const TARGET_PX_PER_MM = 7; // working resolution (enough for enlarged pores)
 const MAX_WORK_PIXELS = 1_900_000;
 
-// Score calibration: tune these after trying the app on a few patients in your clinic light.
+// Score calibration: tune after trying the app on a few patients in your own clinic light.
+// Each value is the measurement that gives a score of 100 for that category.
 export const CALIBRATION = {
-  oily: { tzone: 5, cheeks: 3 },          // % shiny area for "Oily"
-  combination: { tzone: 3 },              // % T-zone shine for "Combination"
-  dry: { tzone: 1, cheeks: 0.7 },         // below these = "Dry-leaning"
-  poreDensityPer100: 30,                  // pores / cm² that scores 100
-  roughnessBaseline: 60,                  // roughness index regarded as normal skin
+  poresPerCm2: 30,        // visible pores per cm²
+  wrinkleMmPerCm2: 40,    // mm of wrinkle line per cm²
+  spotPct: 12,            // % of zone covered by defined (surface) spots
+  diffusePct: 30,         // % of zone covered by diffuse / deeper pigment
+  shinePct: 8,            // % of zone shiny (sebum)
+  rednessPct: 18,         // % of zone red
+  scarsPerCm2: 2,         // depressions per cm²
+  roughnessBaseline: 60,  // normal-skin roughness index (no points below this)
   roughnessGain: 1.2,
-  scarWeight: 3,                          // score points per detected depression
-  pigmentGain: 5, spotWeight: 0.6,
-  rednessGain: 5, redSpotWeight: 1.5,
+  skinType: { oilyT: 5, oilyC: 3, combiT: 3, dryT: 1, dryC: 0.7 },
 };
 
 // ---------------------------------------------------------------- helpers
@@ -81,21 +83,23 @@ function robustStats(arr, mask, stride = 3) {
   return { med, sd: Math.max((q75 - q25) / 1.349, 1e-6) };
 }
 
-/** 8-connected components of a binary map. */
-function components(bin, w, h, zone) {
+/** 8-connected components of a binary map (with shape moments). */
+function components(bin, w, h, zone, labels) {
   const seen = new Uint8Array(bin.length);
   const stack = new Int32Array(bin.length);
   const out = [];
   for (let s = 0; s < bin.length; s++) {
     if (!bin[s] || seen[s]) continue;
-    let sp = 0, area = 0, sx = 0, sy = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
+    let sp = 0, area = 0, sx = 0, sy = 0, sxx = 0, syy = 0, sxy = 0, x0 = 1e9, y0 = 1e9, x1 = -1, y1 = -1;
     const zc = {};
+    const id = out.length + 1;
     stack[sp++] = s;
     seen[s] = 1;
     while (sp) {
       const i = stack[--sp];
       const x = i % w, y = (i / w) | 0;
-      area++; sx += x; sy += y;
+      area++; sx += x; sy += y; sxx += x * x; syy += y * y; sxy += x * y;
+      if (labels) labels[i] = id;
       if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y;
       const z = ZONES[zone[i]];
       if (z) zc[z] = (zc[z] || 0) + 1;
@@ -112,7 +116,12 @@ function components(bin, w, h, zone) {
     }
     let best = null, bc = -1;
     for (const k in zc) if (zc[k] > bc) { bc = zc[k]; best = k; }
-    out.push({ area, cx: sx / area, cy: sy / area, bw: x1 - x0 + 1, bh: y1 - y0 + 1, zone: best });
+    const cx = sx / area, cy = sy / area;
+    const cxx = sxx / area - cx * cx + 1 / 12, cyy = syy / area - cy * cy + 1 / 12, cxy = sxy / area - cx * cy;
+    const tr = (cxx + cyy) / 2, dd = Math.sqrt(((cxx - cyy) / 2) ** 2 + cxy * cxy);
+    const l1 = tr + dd, l2 = Math.max(1e-3, tr - dd);
+    out.push({ id, area, cx, cy, bw: x1 - x0 + 1, bh: y1 - y0 + 1, zone: best,
+      elong: Math.sqrt(l1 / l2), length: 4 * Math.sqrt(l1) });
   }
   return out;
 }
@@ -247,30 +256,78 @@ export function analysePhoto(source, face) {
   }
   const pStat = robustStats(pore, valid), rStat = robustStats(relief, valid);
 
+
+  // wrinkles: fine linear creases in the shading map
+  const wrA = blurMasked(shd, valid, w, h, Math.max(0.6, 0.3 * ppm));
+  const wrB = blurMasked(shd, valid, w, h, 1.6 * ppm);
+  const wr = new Float32Array(N);
+  for (let i = 0; i < N; i++) if (valid[i]) wr[i] = wrA[i] - wrB[i];
+  const wStat = robustStats(wr, valid);
+
+  // diffuse / deeper pigment: broad, soft-edged melanin increase (e.g. melasma, dermal pigment)
+  const melC = blurMasked(mel, valid, w, h, 2.5 * ppm);
+  const cStat = robustStats(melC, valid);
+  const melDiffZ = new Float32Array(N);
+  for (let i = 0; i < N; i++) {
+    if (valid[i]) melDiffZ[i] = (0.6 * (melC[i] - melBg[i]) + 0.4 * (melC[i] - cStat.med)) / cStat.sd;
+  }
+
   // ---------- thresholds & detections
   const mm2 = ppm * ppm;
-  const melBin = new Uint8Array(N), hbBin = new Uint8Array(N), poreBin = new Uint8Array(N), reliefBin = new Uint8Array(N);
+  const melBin = new Uint8Array(N), hbBin = new Uint8Array(N), poreBin = new Uint8Array(N);
+  const reliefBin = new Uint8Array(N), wrBin = new Uint8Array(N), diffBin = new Uint8Array(N);
   const poreT = pStat.med + Math.max(2.4 * pStat.sd, 0.02);
   const reliefT = rStat.med + Math.max(2.2 * rStat.sd, 0.02);
+  const wrT = wStat.med + Math.max(2.0 * wStat.sd, 0.015);
   for (let i = 0; i < N; i++) {
     if (!valid[i] || !interior[i]) continue;
     if (melZ[i] > 2.0) melBin[i] = 1;
+    if (melDiffZ[i] > 1.6) diffBin[i] = 1;
     if (hbZ[i] > 2.0) hbBin[i] = 1;
     if (pore[i] > poreT && melZ[i] < 2.5) poreBin[i] = 1;
     if (relief[i] > reliefT && melZ[i] < 2.0) reliefBin[i] = 1;
+    if (wr[i] > wrT && zone[i] !== 2 && zone[i] !== 5) wrBin[i] = 1;
   }
 
+  const ratio = (c) => Math.max(c.bw, c.bh) / Math.min(c.bw, c.bh);
   const pores = components(poreBin, w, h, zone).filter(
-    (c) => c.area >= Math.max(2, 0.02 * mm2) && c.area <= 0.9 * mm2 && Math.max(c.bw, c.bh) / Math.min(c.bw, c.bh) < 2.6);
+    (c) => c.area >= Math.max(2, 0.02 * mm2) && c.area <= 0.9 * mm2 && ratio(c) < 2.6);
   const scars = components(reliefBin, w, h, zone).filter(
-    (c) => c.area >= 0.8 * mm2 && c.area <= 20 * mm2 && Math.max(c.bw, c.bh) / Math.min(c.bw, c.bh) < 2.2 &&
+    (c) => c.area >= 0.8 * mm2 && c.area <= 20 * mm2 && ratio(c) < 2.2 && c.elong < 2.5 &&
       ['cheekR', 'cheekL', 'other', 'forehead', 'chin'].includes(c.zone));
-  const pig = components(melBin, w, h, zone).filter((c) => c.area >= 0.8 * mm2);
+
+  const wrLabels = new Int32Array(N);
+  const wrComps = components(wrBin, w, h, zone, wrLabels);
+  const wrinkles = wrComps.filter((c) => c.elong >= 3 && c.length >= 4 * ppm && c.area >= 6);
+  const wrKeep = new Uint8Array(wrComps.length + 1);
+  for (const c of wrinkles) wrKeep[c.id] = 1;
+  const wrinkleMask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (wrLabels[i] && wrKeep[wrLabels[i]]) wrinkleMask[i] = 1;
+
+  const spotLabels = new Int32Array(N);
+  const spotComps = components(melBin, w, h, zone, spotLabels);
+  const spots = spotComps.filter((c) => c.area >= 0.8 * mm2 && c.area < 25 * mm2);
+  const spotKeep = new Uint8Array(spotComps.length + 1);
+  for (const c of spots) spotKeep[c.id] = 1;
+  const spotMask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (spotLabels[i] && spotKeep[spotLabels[i]]) spotMask[i] = 1;
+
+  const diffLabels = new Int32Array(N);
+  const diffComps = components(diffBin, w, h, zone, diffLabels);
+  const patches = diffComps.filter((c) => c.area >= 15 * mm2);
+  const diffKeep = new Uint8Array(diffComps.length + 1);
+  for (const c of patches) diffKeep[c.id] = 1;
+  const diffuseMask = new Uint8Array(N);
+  for (let i = 0; i < N; i++) if (diffLabels[i] && diffKeep[diffLabels[i]]) diffuseMask[i] = 1;
+
   const red = components(hbBin, w, h, zone).filter((c) => c.area >= 0.8 * mm2);
+  const redSpots = red.filter((c) => c.area / mm2 <= 20 && ratio(c) < 2);
 
   // ---------- per-zone statistics
   const zstat = {};
-  for (const k of Object.values(ZONES)) if (k) zstat[k] = { px: 0, valid: 0, shine: 0, mel: 0, hb: 0, rough: 0, rough2: 0 };
+  for (const k of Object.values(ZONES)) {
+    if (k) zstat[k] = { px: 0, valid: 0, shine: 0, spot: 0, diff: 0, hb: 0, rough: 0, rough2: 0, r: 0, g: 0, b: 0 };
+  }
   for (let i = 0; i < N; i++) {
     const z = ZONES[zone[i]];
     if (!z || !interior[i]) continue;
@@ -279,133 +336,184 @@ export function analysePhoto(source, face) {
     if (shine[i]) s.shine++;
     if (!valid[i]) continue;
     s.valid++;
-    if (melBin[i]) s.mel++;
+    if (spotMask[i]) s.spot++;
+    if (diffuseMask[i]) s.diff++;
     if (hbBin[i]) s.hb++;
     s.rough += relief[i];
     s.rough2 += relief[i] * relief[i];
+    s.r += rgba[i * 4]; s.g += rgba[i * 4 + 1]; s.b += rgba[i * 4 + 2];
   }
   const zones = {};
   for (const [k, s] of Object.entries(zstat)) {
-    const areaMm2 = s.px / mm2;
     const mean = s.valid ? s.rough / s.valid : 0;
     zones[k] = {
-      areaCm2: areaMm2 / 100,
+      areaCm2: s.px / mm2 / 100,
       shinePct: s.px ? (100 * s.shine) / s.px : 0,
-      pigmentPct: s.valid ? (100 * s.mel) / s.valid : 0,
+      spotPct: s.valid ? (100 * s.spot) / s.valid : 0,
+      diffusePct: s.valid ? (100 * s.diff) / s.valid : 0,
       rednessPct: s.valid ? (100 * s.hb) / s.valid : 0,
       roughness: s.valid ? Math.sqrt(Math.max(0, s.rough2 / s.valid - mean * mean)) * 1000 : 0,
-      pores: 0, scars: 0, spots: 0, patchesMm2: 0, redSpots: 0, diffuseRedMm2: 0,
+      rgb: s.valid ? [s.r / s.valid, s.g / s.valid, s.b / s.valid] : null,
+      pores: 0, scars: 0, spots: 0, patchesMm2: 0, redSpots: 0, wrinkleMm: 0,
     };
   }
-  for (const p of pores) if (p.zone && zones[p.zone]) zones[p.zone].pores++;
-  for (const s of scars) if (s.zone && zones[s.zone]) zones[s.zone].scars++;
-  for (const c of pig) {
-    if (!c.zone || !zones[c.zone]) continue;
-    if (c.area / mm2 >= 25) zones[c.zone].patchesMm2 += c.area / mm2;
-    else zones[c.zone].spots++;
-  }
-  const redSpots = [];
-  for (const c of red) {
-    if (!c.zone || !zones[c.zone]) continue;
-    const a = c.area / mm2;
-    const round = Math.max(c.bw, c.bh) / Math.min(c.bw, c.bh) < 2;
-    if (a <= 20 && round) { zones[c.zone].redSpots++; redSpots.push(c); }
-    else if (a > 20) zones[c.zone].diffuseRedMm2 += a;
-  }
+  const add = (list, key, f = () => 1) => { for (const c of list) if (c.zone && zones[c.zone]) zones[c.zone][key] += f(c); };
+  add(pores, 'pores');
+  add(scars, 'scars');
+  add(spots, 'spots');
+  add(patches, 'patchesMm2', (c) => c.area / mm2);
+  add(redSpots, 'redSpots');
+  add(wrinkles, 'wrinkleMm', (c) => c.length / ppm);
 
-  // brightness / exposure info for quality warnings
   const exposure = robustStats(L, mask).med;
-  const sizeCm2 = Object.values(zones).reduce((s, z) => s + z.areaCm2, 0);
 
   return {
     w, h, ppm, box, scale, pts,
-    rgba, mask, zone, shine, feather,
-    melZ, hbZ, pore, relief, shd,
-    pores, scars, pig, redSpots,
-    zones, exposure, sizeCm2,
+    mask, zone, shine, feather,
+    melZ, melDiffZ, hbZ, pore, relief, wr,
+    pores, scars, redSpots, wrinkles, spots, patches,
+    wrinkleMask, spotMask, diffuseMask,
+    zones, exposure,
     lowRes: ppm < 4.5,
   };
+}
+
+// ---------------------------------------------------------------- colour helpers
+function srgbToLab([r, g, b]) {
+  const lin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
+  const R = lin(r), G = lin(g), B = lin(b);
+  const X = (0.4124 * R + 0.3576 * G + 0.1805 * B) / 0.95047;
+  const Y = 0.2126 * R + 0.7152 * G + 0.0722 * B;
+  const Z = (0.0193 * R + 0.1192 * G + 0.9505 * B) / 1.08883;
+  const f = (t) => (t > 0.008856 ? Math.cbrt(t) : 7.787 * t + 16 / 116);
+  return { L: 116 * f(Y) - 16, a: 500 * (f(X) - f(Y)), b: 200 * (f(Y) - f(Z)) };
+}
+
+function itaCategory(ita) {
+  if (ita > 55) return 'Very light';
+  if (ita > 41) return 'Light';
+  if (ita > 28) return 'Intermediate';
+  if (ita > 10) return 'Tan';
+  if (ita > -30) return 'Brown';
+  return 'Dark';
 }
 
 // ---------------------------------------------------------------- combine 3 photos
 const ZONE_SOURCE = {
   // which photo describes each zone best
-  forehead: ['front'], nose: ['front'], upperLip: ['front'], chin: ['front'],
+  forehead: ['front'], nose: ['front'], upperLip: ['front'], chin: ['front'], eyes: ['front'],
   cheekR: ['right', 'front'], cheekL: ['left', 'front'], other: ['right', 'left', 'front'],
 };
 
-function pick(results, zone) {
-  for (const v of ZONE_SOURCE[zone]) {
-    const r = results[v];
-    if (r && r.zones[zone] && r.zones[zone].areaCm2 > 1.5) return r.zones[zone];
-  }
-  return null;
-}
+export const CATEGORIES = [
+  { id: 'pores', label: 'Pores', zones: ['nose', 'cheekR', 'cheekL', 'forehead', 'chin'] },
+  { id: 'wrinkles', label: 'Wrinkles', zones: ['forehead', 'eyes', 'cheekR', 'cheekL'] },
+  { id: 'spots', label: 'Spots (surface)', zones: ['forehead', 'cheekR', 'cheekL', 'nose', 'eyes', 'upperLip', 'chin'] },
+  { id: 'deep', label: 'Deep / diffuse pigment', zones: ['forehead', 'cheekR', 'cheekL', 'nose', 'eyes', 'upperLip', 'chin'] },
+  { id: 'sebum', label: 'Sebum (oil)', zones: ['forehead', 'nose', 'cheekR', 'cheekL', 'chin'] },
+  { id: 'redness', label: 'Redness', zones: ['forehead', 'nose', 'cheekR', 'cheekL', 'chin'] },
+  { id: 'texture', label: 'Texture & scars', zones: ['cheekR', 'cheekL', 'forehead', 'chin', 'other'] },
+];
 
 const clamp = (v, a = 0, b = 100) => Math.max(a, Math.min(b, v));
-const level = (score) => (score < 25 ? 'Minimal' : score < 50 ? 'Mild' : score < 75 ? 'Moderate' : 'Marked');
+export const level = (score) => (score < 25 ? 'Minimal' : score < 50 ? 'Mild' : score < 75 ? 'Moderate' : 'Marked');
+
+function zoneScore(cat, z) {
+  const C = CALIBRATION;
+  const a = Math.max(0.5, z.areaCm2);
+  switch (cat) {
+    case 'pores': return clamp((z.pores / a / C.poresPerCm2) * 100);
+    case 'wrinkles': return clamp((z.wrinkleMm / a / C.wrinkleMmPerCm2) * 100);
+    case 'spots': return clamp((z.spotPct / C.spotPct) * 100);
+    case 'deep': return clamp((z.diffusePct / C.diffusePct) * 100);
+    case 'sebum': return clamp((z.shinePct / C.shinePct) * 100);
+    case 'redness': return clamp((z.rednessPct / C.rednessPct) * 100 + (z.redSpots / a) * 15);
+    case 'texture': return clamp((z.scars / a / C.scarsPerCm2) * 100 * 0.6 +
+      Math.max(0, z.roughness - C.roughnessBaseline) * C.roughnessGain);
+    default: return 0;
+  }
+}
 
 /**
  * Build the consultation summary from per-photo results {front, right, left}.
+ * The returned object only holds plain numbers/strings so it can be saved with the visit.
  */
 export function summarise(results) {
   const Z = {};
-  for (const k of Object.keys(ZONE_SOURCE)) Z[k] = pick(results, k);
+  for (const k of Object.keys(ZONE_SOURCE)) {
+    for (const v of ZONE_SOURCE[k]) {
+      const r = results[v];
+      if (r && r.zones[k] && r.zones[k].areaCm2 > 1) { Z[k] = r.zones[k]; break; }
+    }
+  }
   const has = (k) => !!Z[k];
+
+  const cats = {};
+  for (const c of CATEGORIES) {
+    const zs = {};
+    let sum = 0, wsum = 0;
+    for (const k of c.zones) {
+      if (!has(k)) continue;
+      const sc = zoneScore(c.id, Z[k]);
+      zs[k] = Math.round(sc);
+      sum += sc * Z[k].areaCm2;
+      wsum += Z[k].areaCm2;
+    }
+    const score = wsum ? sum / wsum : 0;
+    cats[c.id] = { score: Math.round(score), level: level(score), zones: zs };
+  }
+
+  // skin type from shine
   const avg = (keys, f) => {
     const v = keys.filter(has).map((k) => f(Z[k]));
     return v.length ? v.reduce((a, b) => a + b, 0) / v.length : 0;
   };
-  const sum = (keys, f) => keys.filter(has).reduce((s, k) => s + f(Z[k]), 0);
-  const areaOf = (keys) => sum(keys, (z) => z.areaCm2) || 1;
-
-  // ---- oil / shine
+  const T = CALIBRATION.skinType;
   const tShine = avg(['forehead', 'nose'], (z) => z.shinePct);
   const cShine = avg(['cheekR', 'cheekL'], (z) => z.shinePct);
   let skinType;
-  const C = CALIBRATION;
-  if (tShine > C.oily.tzone && cShine > C.oily.cheeks) skinType = 'Oily';
-  else if (tShine > C.combination.tzone && cShine < Math.max(1.5, tShine * 0.5)) skinType = 'Combination';
-  else if (tShine < C.dry.tzone && cShine < C.dry.cheeks) skinType = 'Dry-leaning';
+  if (tShine > T.oilyT && cShine > T.oilyC) skinType = 'Oily';
+  else if (tShine > T.combiT && cShine < Math.max(1.5, tShine * 0.5)) skinType = 'Combination';
+  else if (tShine < T.dryT && cShine < T.dryC) skinType = 'Dry-leaning';
   else skinType = 'Normal';
-  const oilScore = clamp(tShine * 8 + cShine * 10);
 
-  // ---- pores (density per cm² on nose + cheeks)
-  const poreKeys = ['nose', 'cheekR', 'cheekL'];
-  const poreDensity = sum(poreKeys, (z) => z.pores) / areaOf(poreKeys);
-  const poreScore = clamp((poreDensity / C.poreDensityPer100) * 100);
-
-  // ---- texture / acne scars
-  const scarKeys = ['cheekR', 'cheekL', 'other'];
-  const scarCount = sum(scarKeys, (z) => z.scars);
-  const rough = avg(['cheekR', 'cheekL'], (z) => z.roughness);
-  const textureScore = clamp(scarCount * C.scarWeight + Math.max(0, rough - C.roughnessBaseline) * C.roughnessGain);
-
-  // ---- pigmentation / melasma
-  const pigKeys = ['forehead', 'cheekR', 'cheekL', 'nose', 'upperLip', 'chin'];
-  const pigPct = sum(pigKeys, (z) => (z.pigmentPct * z.areaCm2)) / areaOf(pigKeys);
+  // pigment pattern
   const patch = (k) => (has(k) ? Z[k].patchesMm2 : 0);
-  const spots = sum(pigKeys, (z) => z.spots);
   const bilateral = patch('cheekR') > 40 && patch('cheekL') > 40;
   const centro = patch('forehead') + patch('upperLip') + patch('nose') > 60;
   const melasmaPattern = bilateral ? (centro ? 'Centrofacial + malar' : 'Malar (both cheeks)') : centro ? 'Centrofacial' : null;
-  const pigScore = clamp(pigPct * C.pigmentGain + spots * C.spotWeight);
 
-  // ---- redness
-  const redKeys = ['forehead', 'cheekR', 'cheekL', 'nose', 'chin'];
-  const redPct = sum(redKeys, (z) => z.rednessPct * z.areaCm2) / areaOf(redKeys);
-  const redSpots = sum(redKeys, (z) => z.redSpots);
-  const redScore = clamp(redPct * C.rednessGain + redSpots * C.redSpotWeight);
+  // skin tone
+  const toneKeys = ['forehead', 'cheekR', 'cheekL', 'chin'].filter((k) => has(k) && Z[k].rgb);
+  const labs = toneKeys.map((k) => ({ k, lab: srgbToLab(Z[k].rgb), rgb: Z[k].rgb }));
+  const mean = (a) => (a.length ? a.reduce((s, v) => s + v, 0) / a.length : 0);
+  const Ls = mean(labs.map((x) => x.lab.L)), bs = mean(labs.map((x) => x.lab.b));
+  const ita = (Math.atan2(Ls - 50, bs) * 180) / Math.PI;
+  const evenness = labs.length > 1 ? Math.sqrt(mean(labs.map((x) => (x.lab.L - Ls) ** 2))) : 0;
+  const eyeL = has('eyes') && Z.eyes.rgb ? srgbToLab(Z.eyes.rgb).L : null;
+  const cheekL = mean(labs.filter((x) => x.k.startsWith('cheek')).map((x) => x.lab.L)) || Ls;
+  const repRgb = labs.length ? [0, 1, 2].map((i) => Math.round(mean(labs.map((x) => x.rgb[i])))) : [180, 150, 130];
+  const tone = {
+    brightness: Math.round(Ls), // L*: 0 black .. 100 white
+    ita: Math.round(ita),
+    category: itaCategory(ita),
+    evenness: +evenness.toFixed(1),
+    underEyeDiff: eyeL == null ? null : +(cheekL - eyeL).toFixed(1),
+    rgb: repRgb,
+    zones: Object.fromEntries(labs.map((x) => [x.k, { L: Math.round(x.lab.L), rgb: x.rgb.map(Math.round) }])),
+  };
 
-  const zoneRows = Object.keys(ZONE_SOURCE).filter(has).map((k) => ({ zone: k, ...Z[k] }));
-  const lowRes = Object.values(results).some((r) => r && r.lowRes);
+  const zoneRows = Object.keys(ZONE_SOURCE).filter(has).map((k) => ({
+    zone: k,
+    areaCm2: +Z[k].areaCm2.toFixed(1),
+    pores: Z[k].pores, wrinkleMm: Math.round(Z[k].wrinkleMm), spots: Z[k].spots, scars: Z[k].scars,
+    shinePct: +Z[k].shinePct.toFixed(1), spotPct: +Z[k].spotPct.toFixed(1),
+    diffusePct: +Z[k].diffusePct.toFixed(1), rednessPct: +Z[k].rednessPct.toFixed(1),
+  }));
 
   return {
-    skinType, oilScore, tShine, cShine,
-    poreScore, poreDensity, poreLevel: level(poreScore),
-    textureScore, scarCount, rough, textureLevel: level(textureScore),
-    pigScore, pigPct, spots, melasmaPattern, pigLevel: level(pigScore),
-    redScore, redPct, redSpots, redLevel: level(redScore),
-    zoneRows, lowRes,
+    cats, skinType, tShine: +tShine.toFixed(1), cShine: +cShine.toFixed(1),
+    melasmaPattern, tone, zoneRows,
+    lowRes: Object.values(results).some((r) => r && r.lowRes),
   };
 }

@@ -1,28 +1,26 @@
 # SkinScope Consult
 
-A fast face and skin analyser for **first consultations in the clinic**. It runs in the browser on an
-iPad, iPhone, Android tablet or laptop, with nothing to install and no account.
+A face and skin analysis system for **consultations in the clinic**. It runs in the browser on an iPad
+(or any tablet / phone / laptop), with nothing to install. Customers, photos and results are stored **only on that device**.
 
-1. Take **3 photos**: front, then the patient's right side at 45°, then the left side at 45°.
-   The camera shows the head angle live and **auto-captures** when the angle, distance, level and light are right.
-2. Straight away it shows a **collage of the 3 photos**, ready to show the patient, save or print.
-3. Switch the collage between **light modes**:
+## Workflow
 
-| Mode | What it shows |
+| Step | What you do |
 |---|---|
-| Original | The photos as taken |
-| **Red light** | Redness / blood vessels / inflammation; possible active spots circled |
-| **Blue light** | Blue-channel contrast. Surface pigment (melasma, sun spots) stands out dark |
-| Brown spots | Melanin map: melasma patches and pigment spots |
-| Pores & texture | Relief map: pores (cyan dots), possible acne scars / depressions (orange circles) |
-| Oil / shine | Shiny (oily) areas in yellow |
-| Face structure | Midline, facial thirds, fifths, widths, eye tilt; jawline on the 45° views |
+| **1 Customer** | Search or register the customer: name, sex, birthday (required, used for age-group comparison), adviser/doctor, phone, e-mail, notes. Past visits are listed here. |
+| **2 Capture** | Front → Left 45° → Right 45°. A live head-angle guide auto-captures when angle, distance, level and light are right. Preview overlays: **4 / 48 sections** grid, or **Ghost** (last visit's photo, adjustable transparency) for repeat visits. You can also import photos. |
+| **3 Images** | For each position, 3 side-by-side images: **Normal** (pores & wrinkles), **Polarized-style** (surface spots), **UV-style** (deep spots & sebum). Each has **M** (marked) and **B** (black & white) modes. *All angles* shows the 3-photo collage in any mode. Hold 💡 to see the original. |
+| **4 Analysis** | Pores, Wrinkles, Spots (surface), Deep / diffuse pigment, Sebum (with skin-type questions), Redness, Texture & scars, Skin tone, Face structure. Each shows a 0–100 score, zones **A–G** with a bar chart, the clinic reference for the same sex and age group, and counselling text. |
+| **5 Total** | One-page summary: state bars vs reference, key images, skin type, tone, structure, **Advice** and **Recommended treatments / products**. **Print / PDF**. |
+| **6 History** | Line graphs of every category over the last 10 visits, a score table, and the advice history. |
+| **7 Compare** | Pick 2 dates: side-by-side images in any mode, plus the score change per category (green = improved). |
 
-4. A short report: **skin type** (oily / combination / normal / dry), **pores**, **texture & acne scars**,
-   **pigmentation & melasma pattern**, **redness**, **face structure** (shape, proportions, symmetry, head angles),
-   a per-zone table and a notes box. Use **Print / PDF** to save it to the patient file.
+**Tap any image** to open the viewer. You can pinch-zoom (with a navigator), hold for the original, and use the
+**Length** (mm), **Area** (mm² + brightness), **Angle**, **Line profile** (RGB/gray roughness), **Arrow**, **Text** (e.g. "Botox")
+and **Pen** tools. Drawings are saved with the visit, and **Save image** exports them.
 
-> Photos are processed **only on the device**. Nothing is uploaded or stored. Closing the page clears them.
+**Clinic reference:** age-group averages are built from *your own* saved patients (same sex, same 10-year age group,
+at least 3 patients). No made-up norms are used.
 
 ## Putting it on your iPad
 
@@ -42,6 +40,7 @@ An internet connection is needed the first time, to load the face AI (~4 MB). Af
 - Bare skin: no makeup or sunscreen. Hair clipped back, glasses off.
 - Soft, even light from the front (window light or a ring light). Avoid flash and overhead spotlights.
 - **Use the back camera**, held by staff, about 30–40 cm from the face. It has much more detail for pores.
+- For repeat visits, switch the preview to **Ghost** and line the face up with last time.
 - For the oil reading, the patient should not have cleansed or blotted in the last 1–2 hours.
 - Same room, same light, same distance at every visit, so before/after photos are comparable.
 - You can also take photos with the normal iPad Camera app and use **Import 1–3 photos**.
@@ -61,21 +60,26 @@ An internet connection is needed the first time, to load the face AI (~4 MB). Af
 
 - This is an **indicative, image-based** tool to support the consultation and show the patient. It is **not a diagnosis**.
   For example, the melasma pattern should be confirmed with Wood's lamp or dermoscopy.
-- "Red light" and "Blue light" are **computed from a normal photo**. They are not real UV / cross-polarised
-  imaging (like VISIA), so they cannot show porphyrins or deep pigment.
+- "Polarized-style" and "UV-style" images are **computed from a normal photo**. They are not real cross-polarised or
+  UV photographs, so they cannot show porphyrins (acne bacteria) or measure true dermal pigment. "Deep / diffuse pigment"
+  means broad, soft-edged pigment patterns (e.g. melasma-like), estimated from colour.
+- Data lives in this browser on this device. Clearing Safari website data deletes it, and it does not sync between devices.
 - Scores depend on light and camera. Tune the thresholds in `CALIBRATION` at the top of
   `js/analysis.js` after trying it on a few patients in your own room.
 
 ## Files
 
 ```
-index.html          screens: home, camera capture, results
+index.html          page layout
 css/styles.css      layout (iPad-first, print layout for the report)
-js/app.js           app flow, capture guidance, report
+js/app.js           screens: customer, capture, images, analysis, total, history, compare
+js/db.js            on-device customer & visit storage (IndexedDB)
+js/viewer.js        zoom viewer + measurement / drawing tools
+js/charts.js        SVG charts
 js/face.js          MediaPipe loading, head pose, mm scale
 js/regions.js       skin mask and face zones
 js/analysis.js      skin analysis + CALIBRATION
-js/views.js         red / blue / brown / texture / shine renderings
+js/views.js         Normal / Polarized-style / UV-style images, M & B modes
 js/structure.js     facial proportions & overlay
 js/collage.js       3-photo collage
 ```
